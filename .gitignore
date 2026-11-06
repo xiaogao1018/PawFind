@@ -1,0 +1,18 @@
+# Vue 前端
+node_modules/
+dist/
+
+# Spring Boot 后端
+target/
+
+# 环境变量和密钥
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# 编辑器本地配置
+.idea/
+.vscode/

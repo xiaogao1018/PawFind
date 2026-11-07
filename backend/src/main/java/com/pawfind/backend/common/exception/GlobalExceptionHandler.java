@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 
+import com.pawfind.backend.common.exception.InvalidCredentialsException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -60,6 +62,15 @@ public class GlobalExceptionHandler {
                 .badRequest()
                 .body(Result.error(400, message));
     }
+
+        @ExceptionHandler(InvalidCredentialsException.class)
+        public ResponseEntity<Result<Void>> handleInvalidCredentials(
+                InvalidCredentialsException e) {
+
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(Result.error(401, e.getMessage()));
+        }
 
 
 }

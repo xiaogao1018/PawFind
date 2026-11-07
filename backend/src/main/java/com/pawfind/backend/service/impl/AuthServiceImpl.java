@@ -14,16 +14,34 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
+
+import com.pawfind.backend.common.exception.InvalidCredentialsException;
+import com.pawfind.backend.dto.LoginDTO;
+import com.pawfind.backend.util.JwtUtil;
+import com.pawfind.backend.vo.LoginVO;
+import org.springframework.beans.factory.annotation.Value;
+
+
 @Service
 public class AuthServiceImpl implements AuthService {
 
     private final SysUserMapper sysUserMapper;
     private final BCryptPasswordEncoder passwordEncoder =
             new BCryptPasswordEncoder(12);
+    private final JwtUtil jwtUtil;
+    private final long jwtExpirationMs;
 
-    public AuthServiceImpl(SysUserMapper sysUserMapper) {
+
+    public AuthServiceImpl(
+            SysUserMapper sysUserMapper,
+            JwtUtil jwtUtil,
+            @Value("${jwt.expiration-ms}") long jwtExpirationMs) {
+
         this.sysUserMapper = sysUserMapper;
+        this.jwtUtil = jwtUtil;
+        this.jwtExpirationMs = jwtExpirationMs;
     }
+
 
     @Override
     public UserInfoVO register(RegisterDTO dto) {
@@ -65,7 +83,12 @@ public class AuthServiceImpl implements AuthService {
         user.setUpdatedAt(now);
 
         // 7. 保存到数据库
-        sysUserMapper.insert(user);
+        
+        try {
+            sysUserMapper.insert(user);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            throw new UsernameAlreadyExistsException("用户名已存在");
+        }
 
         // 8. 只返回安全的用户信息
         UserInfoVO vo = new UserInfoVO();
@@ -75,4 +98,47 @@ public class AuthServiceImpl implements AuthService {
 
         return vo;
     }
+
+
+    @Override
+    public LoginVO login(LoginDTO dto) {
+
+        // 1. 根据用户名查询用户
+        LambdaQueryWrapper<SysUser> query =
+                new LambdaQueryWrapper<>();
+
+        query.eq(SysUser::getUsername, dto.getUsername());
+
+        SysUser user = sysUserMapper.selectOne(query);
+
+        // 2. 检查用户名和密码
+        if (user == null ||
+                !passwordEncoder.matches(
+                        dto.getPassword(),
+                        user.getPasswordHash())) {
+
+            throw new InvalidCredentialsException(
+                    "用户名或密码错误"
+            );
+        }
+
+        // 3. 检查账号状态
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new InvalidCredentialsException(
+                    "账号不可登录"
+            );
+        }
+
+        // 4. 生成 JWT
+        String token = jwtUtil.generateToken(user.getId());
+
+        // 5. 返回登录结果
+        LoginVO vo = new LoginVO();
+        vo.setToken(token);
+        vo.setTokenType("Bearer");
+        vo.setExpiresIn(jwtExpirationMs / 1000);
+
+        return vo;
+    }
+
 }

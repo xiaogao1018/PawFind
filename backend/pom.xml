@@ -76,6 +76,31 @@
 			<artifactId>spring-security-crypto</artifactId>
 		</dependency>
 
+
+		<!-- JWT API：编写生成和验证 Token 的代码 -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>0.13.0</version>
+		</dependency>
+
+		<!-- JWT 实现：运行时使用 -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>0.13.0</version>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- JWT JSON 处理：运行时使用 -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>0.13.0</version>
+			<scope>runtime</scope>
+		</dependency>
+
+
 	</dependencies>
 
 

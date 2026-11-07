@@ -9,6 +9,8 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.pawfind.backend.dto.LoginDTO;
+import com.pawfind.backend.vo.LoginVO;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -29,5 +31,16 @@ public class AuthController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(Result.success(user));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<Result<LoginVO>> login(
+            @Valid @RequestBody LoginDTO dto) {
+
+        LoginVO loginResult = authService.login(dto);
+
+        return ResponseEntity.ok(
+                Result.success(loginResult)
+        );
     }
 }

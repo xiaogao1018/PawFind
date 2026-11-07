@@ -55,3 +55,10 @@ cd backend
 ## 当前开发进度
 
 W1D2：前后端项目初始化完成，业务功能尚未开发。
+
+
+##  新终端
+cd /Users/Admin/Documents/PawFind/backend
+read -s "DB_PASSWORD?请输入 pawfind_app 的 MySQL 密码: "
+export DB_PASSWORD
+echo "环境变量已设置"

@@ -8,7 +8,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
+import com.pawfind.backend.common.result.Result;
+import com.pawfind.backend.common.exception.ResourceNotFoundException;
 
 //声明这是接收 HTTP 请求的控制器
 @RestController
@@ -24,20 +25,24 @@ public class UserController {
     }
 
     //处理 GET 请求，获取用户信息
+
     @GetMapping("/{id}")
-    public UserInfoVO getUserById(@PathVariable Long id) {
-        
+    public Result<UserInfoVO> getUserById(@PathVariable Long id) {
+
         SysUser user = userService.getUserById(id);
 
+        
         if (user == null) {
-            throw new IllegalArgumentException("用户不存在");
+            throw new ResourceNotFoundException("用户不存在");
         }
+
 
         UserInfoVO vo = new UserInfoVO();
         vo.setId(user.getId());
         vo.setUsername(user.getUsername());
         vo.setRole(user.getRole());
 
-        return vo;
+        return Result.success(vo);
     }
+
 }

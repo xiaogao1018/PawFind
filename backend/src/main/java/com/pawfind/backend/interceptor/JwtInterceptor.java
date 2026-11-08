@@ -34,6 +34,13 @@ public class JwtInterceptor implements HandlerInterceptor {
             HttpServletResponse response,
             Object handler) throws Exception {
 
+             
+        // 放行浏览器的 CORS 预检请求
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+   
+
         // 1. 获取请求头中的 Token
         String authHeader = request.getHeader("Authorization");
 

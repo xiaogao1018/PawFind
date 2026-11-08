@@ -1,6 +1,7 @@
 
 package com.pawfind.backend.util;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -23,12 +24,15 @@ public class JwtUtil {
         this.key = Keys.hmacShaKeyFor(
                 Decoders.BASE64.decode(secret)
         );
+
         this.expirationMs = expirationMs;
     }
 
+    // 1. 生成 JWT
     public String generateToken(Long userId) {
 
         Date now = new Date();
+
         Date expiration = new Date(
                 now.getTime() + expirationMs
         );
@@ -39,5 +43,17 @@ public class JwtUtil {
                 .expiration(expiration)
                 .signWith(key)
                 .compact();
+    }
+
+    // 2. 验证 JWT，并提取用户 ID
+    public Long getUserIdFromToken(String token) {
+
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return Long.valueOf(claims.getSubject());
     }
 }

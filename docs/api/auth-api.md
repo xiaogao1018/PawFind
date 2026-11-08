@@ -55,24 +55,81 @@ HTTP 状态码：201 Created
 - 注册成功只返回用户 ID、用户名和角色，不返回密码或密码哈希。
 - 数据库对用户名设置唯一约束。
 
-## 2. 用户登录（待实现）
+## 2. 用户登录
 
-**请求方式：** POST
+### 基本信息
 
-**请求路径：** `/api/auth/login`
+- 请求方法：`POST`
+- 请求路径：`/api/auth/login`
+- 请求格式：`application/json`
+- 接口状态：已实现
 
-**计划请求体（JSON）：**
+### 请求示例
 
 ```json
 {
-  "username": "xiaoming",
-  "password": "abc123456"
+  "username": "pawfind_w2_test",
+  "password": "TestPass123!"
 }
 ```
 
-登录接口目前仅完成 DTO 和初步契约设计，尚未实现，不能调用。
+以上为本地测试账号，仅供开发测试。
 
-后续将通过 BCrypt 验证密码，并设计登录成功后的身份凭证。
+### 登录成功
+
+HTTP 状态码：`200 OK`
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "token": "<JWT_TOKEN>",
+    "tokenType": "Bearer",
+    "expiresIn": 7200
+  }
+}
+```
+
+字段说明：
+
+| 字段 | 含义 |
+|---|---|
+| `token` | JWT 登录凭证 |
+| `tokenType` | Bearer |
+| `expiresIn` | Token 有效期，单位为秒 |
+
+### 登录失败
+
+**用户名不存在或密码错误：HTTP 401**
+
+```json
+{
+  "code": 401,
+  "message": "用户名或密码错误",
+  "data": null
+}
+```
+
+**请求参数不合法：HTTP 400**
+
+例如用户名或密码为空：
+
+```json
+{
+  "code": 400,
+  "message": "密码不能为空",
+  "data": null
+}
+```
+
+### 安全说明
+
+1. 登录使用 BCrypt 验证密码，不直接比较明文密码与哈希字符串。
+2. JWT 使用服务端密钥进行签名，有效期为 2 小时。
+3. JWT 中只保存用户 ID 等必要声明，不保存密码。
+4. 不在公开文档、日志或截图中展示真实 JWT。
+5. 当前已实现登录与 JWT 签发，尚未实现受保护接口的 Token 校验和访问权限控制。
 
 ## 3. 开发状态
 

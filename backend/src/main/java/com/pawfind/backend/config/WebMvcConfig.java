@@ -16,19 +16,28 @@ public class WebMvcConfig implements WebMvcConfigurer {
         this.jwtInterceptor = jwtInterceptor;
     }
 
-    // JWT 身份认证：保护用户资料接口
+    // JWT 身份认证
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtInterceptor)
-                .addPathPatterns("/api/users/**");
+                .addPathPatterns(
+                        "/api/users/**",
+                        "/api/pet-lost",
+                        "/api/pet-lost/**"
+                );
     }
 
-    // CORS：允许本地 Vue 前端访问后端 API
+    // 允许本地 Vue 前端访问后端 API
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
                 .allowedOrigins("http://localhost:5173")
-                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                .allowedHeaders("Content-Type", "Authorization");
+                .allowedMethods(
+                        "GET", "POST", "PUT",
+                        "PATCH", "DELETE", "OPTIONS"
+                )
+                .allowedHeaders(
+                        "Content-Type", "Authorization"
+                );
     }
 }

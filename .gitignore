@@ -16,3 +16,6 @@ target/
 # 编辑器本地配置
 .idea/
 .vscode/
+
+# Local uploaded images
+backend/uploads/

@@ -78,5 +78,24 @@ public class GlobalExceptionHandler {
                 .body(Result.error(403, e.getMessage()));
         }
 
+        @org.springframework.web.bind.annotation.ExceptionHandler(
+                org.springframework.web.multipart.MaxUploadSizeExceededException.class
+        )
+        public org.springframework.http.ResponseEntity<
+                com.pawfind.backend.common.result.Result<Void>
+                > handleMaxUploadSize(
+                org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+
+        return org.springframework.http.ResponseEntity
+                .status(
+                        org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE
+                )
+                .body(
+                        com.pawfind.backend.common.result.Result.error(
+                        413, "上传文件过大，单张图片不能超过5MB"
+                        )
+                );
+        }
+
 
 }

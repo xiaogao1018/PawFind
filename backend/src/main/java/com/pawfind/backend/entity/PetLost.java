@@ -27,6 +27,8 @@ public class PetLost {
     private String lostLocation;
 
     private String status;
+    private String visibilityStatus;
+    private String moderationReason;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

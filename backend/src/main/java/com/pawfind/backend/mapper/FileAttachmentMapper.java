@@ -41,7 +41,8 @@ public interface FileAttachmentMapper
         SELECT
             id,
             user_id AS userId,
-            status
+            status,
+            visibility_status AS visibilityStatus
         FROM pet_lost
         WHERE id = #{petLostId}
         FOR UPDATE
@@ -54,7 +55,8 @@ public interface FileAttachmentMapper
         SELECT
             id,
             user_id AS userId,
-            status
+            status,
+            visibility_status AS visibilityStatus
         FROM pet_lost
         WHERE id = #{petLostId}
         """)

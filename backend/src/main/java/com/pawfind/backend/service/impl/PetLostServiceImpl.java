@@ -75,6 +75,7 @@ public class PetLostServiceImpl implements PetLostService {
         petLost.setLostLocation(dto.getLostLocation().trim());
 
         petLost.setStatus("LOOKING");
+        petLost.setVisibilityStatus("VISIBLE");
 
         LocalDateTime now = LocalDateTime.now();
         petLost.setCreatedAt(now);
@@ -101,7 +102,8 @@ public class PetLostServiceImpl implements PetLostService {
         PetLost petLost = petLostMapper.selectById(id);
 
         if (petLost == null
-                || "WITHDRAWN".equals(petLost.getStatus())) {
+                || "WITHDRAWN".equals(petLost.getStatus())
+                || !"VISIBLE".equals(petLost.getVisibilityStatus())) {
             throw new ResourceNotFoundException(
                     "走失信息不存在或已撤回"
             );
@@ -138,6 +140,7 @@ public class PetLostServiceImpl implements PetLostService {
         wrapper.eq(PetLost::getId, id)
                 .eq(PetLost::getUserId, currentUserId)
                 .eq(PetLost::getStatus, "LOOKING")
+                .eq(PetLost::getVisibilityStatus, "VISIBLE")
                 .set(PetLost::getPetName, petName)
                 .set(PetLost::getSpecies, dto.getSpecies().trim())
                 .set(PetLost::getDescription, dto.getDescription())
@@ -168,11 +171,12 @@ public class PetLostServiceImpl implements PetLostService {
 
         getOwnedLookingPet(id, currentUserId);
 
-        PetLost update = new PetLost();
-        update.setId(id);
-        update.setStatus("WITHDRAWN");
-
-        int rows = petLostMapper.updateById(update);
+        int rows = petLostMapper.update(null, new LambdaUpdateWrapper<PetLost>()
+                .eq(PetLost::getId, id)
+                .eq(PetLost::getUserId, currentUserId)
+                .eq(PetLost::getStatus, "LOOKING")
+                .eq(PetLost::getVisibilityStatus, "VISIBLE")
+                .set(PetLost::getStatus, "WITHDRAWN"));
 
         if (rows == 0) {
             throw new IllegalArgumentException(
@@ -195,11 +199,12 @@ public class PetLostServiceImpl implements PetLostService {
 
         getOwnedLookingPet(id, currentUserId);
 
-        PetLost update = new PetLost();
-        update.setId(id);
-        update.setStatus("FOUND");
-
-        int rows = petLostMapper.updateById(update);
+        int rows = petLostMapper.update(null, new LambdaUpdateWrapper<PetLost>()
+                .eq(PetLost::getId, id)
+                .eq(PetLost::getUserId, currentUserId)
+                .eq(PetLost::getStatus, "LOOKING")
+                .eq(PetLost::getVisibilityStatus, "VISIBLE")
+                .set(PetLost::getStatus, "FOUND"));
 
         if (rows == 0) {
             throw new IllegalArgumentException(
@@ -286,6 +291,10 @@ public class PetLostServiceImpl implements PetLostService {
             throw new ForbiddenException(
                     "无权操作其他用户发布的走失信息"
             );
+        }
+
+        if (!"VISIBLE".equals(petLost.getVisibilityStatus())) {
+            throw new ForbiddenException("该记录已被管理员隐藏");
         }
 
         // 只有 LOOKING 状态允许操作

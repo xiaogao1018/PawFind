@@ -27,7 +27,7 @@ public interface PetLostMapper extends BaseMapper<PetLost> {
             created_at AS createdAt,
             updated_at AS updatedAt
         FROM pet_lost
-        WHERE status IN ('LOOKING', 'FOUND')
+        WHERE status IN ('LOOKING', 'FOUND') AND visibility_status = 'VISIBLE'
         ORDER BY created_at DESC, id DESC
         LIMIT #{offset}, #{size}
         """)
@@ -40,7 +40,7 @@ public interface PetLostMapper extends BaseMapper<PetLost> {
     @Select("""
         SELECT COUNT(*)
         FROM pet_lost
-        WHERE status IN ('LOOKING', 'FOUND')
+        WHERE status IN ('LOOKING', 'FOUND') AND visibility_status = 'VISIBLE'
         """)
     long countVisible();
 }

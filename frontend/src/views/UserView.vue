@@ -1,301 +1,242 @@
-
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { getCurrentUser } from '../api/user'
-import type { UserInfo } from '../api/user'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import AppNav from '../components/AppNav.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import { getCurrentUser, type UserInfo } from '../api/user'
+import { listMyCommunityPosts } from '../api/community'
+import {
+  getPersonalSummary, listMyPets, listMyLost, listMyFound, savePet, deletePet,
+  type PersonalSummary, type PetProfile
+} from '../api/personal'
 
+type Section = 'pets' | 'lost' | 'found' | 'posts' | 'account'
+interface Entry { id: number; title: string; description: string; status: string; date: string; path: string | null }
 const router = useRouter()
-
 const user = ref<UserInfo | null>(null)
-const loading = ref(true)
-const errorMessage = ref('')
+const summary = ref<PersonalSummary>({ pets: 0, lost: 0, found: 0, posts: 0 })
+const route = useRoute()
+const requestedSection = String(route.query.section || 'pets')
+const section = ref<Section>(['pets', 'lost', 'found', 'posts', 'account'].includes(requestedSection)
+  ? requestedSection as Section : 'pets')
+const menu = [
+  { key: 'pets' as const, icon: '🐾', label: '我的宠物', hint: '记录它的每一份独特' },
+  { key: 'lost' as const, icon: '⌕', label: '我的寻宠', hint: '我发布的走失信息' },
+  { key: 'found' as const, icon: '⌂', label: '我的发现', hint: '我上报的发现记录' },
+  { key: 'posts' as const, icon: '♧', label: '我的动态', hint: '帖子与审核进度' },
+  { key: 'account' as const, icon: '♙', label: '账号信息', hint: '查看个人账号资料' }
+]
+const contentPanel = ref<HTMLElement | null>(null)
+const heading = computed(() => menu.find(item => item.key === section.value)?.label)
+const loading = ref(true), recordsLoading = ref(false), busy = ref(false)
+const error = ref(''), recordError = ref(''), formError = ref('')
+const pets = ref<PetProfile[]>([]), entries = ref<Entry[]>([])
+const page = ref(1), totalPages = ref(0), total = ref(0)
+const editingId = ref<number | null>(null), showForm = ref(false)
+const petForm = reactive({ name: '', species: '', breed: '', birthDate: '', description: '' })
+let requestVersion = 0
 
-// 获取当前登录用户资料
-async function loadCurrentUser() {
+async function loadSummary() {
+  const result = await getPersonalSummary()
+  if (result.code !== 200 || !result.data) throw new Error(result.message)
+  summary.value = result.data
+}
+async function load() {
   loading.value = true
-  errorMessage.value = ''
-
+  error.value = ''
   try {
-    const response = await getCurrentUser()
-    const result = response.data
-
-    if (result.code !== 200 || !result.data) {
-      errorMessage.value = result.message || '获取用户资料失败'
-      return
-    }
-
-    // 保存后端返回的用户资料
+    const result = (await getCurrentUser()).data
+    if (result.code !== 200 || !result.data) throw new Error(result.message)
     user.value = result.data
-
-  } catch (error) {
-    errorMessage.value =
-      error instanceof Error
-        ? error.message
-        : '获取用户资料失败'
-
-    // 如果 JWT 失效，返回登录页面
-    if (!localStorage.getItem('token')) {
-      await router.replace('/login')
-    }
-
+    await loadSummary()
+    await loadRecords()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '个人中心加载失败'
+    if (!localStorage.getItem('token')) await router.replace('/login')
   } finally {
     loading.value = false
   }
 }
-
-// 退出登录
-async function handleLogout() {
-  localStorage.removeItem('token')
-  user.value = null
-  await router.push('/login')
+async function loadRecords() {
+  const version = ++requestVersion
+  recordError.value = ''
+  recordsLoading.value = true
+  try {
+    let data
+    let rows: Entry[] = []
+    if (section.value === 'pets') {
+      const result = await listMyPets(page.value)
+      if (!result.data) throw new Error(result.message)
+      data = result.data
+      if (version === requestVersion) pets.value = result.data.records
+    } else if (section.value === 'lost') {
+      const result = await listMyLost(page.value)
+      if (!result.data) throw new Error(result.message)
+      data = result.data
+      rows = data.records.map(item => ({
+        id: item.id, title: item.petName || '未命名宠物', description: item.moderationReason || item.lostLocation,
+        status: item.visibilityStatus === 'HIDDEN' ? 'HIDDEN' : item.status, date: item.createdAt,
+        path: item.status === 'WITHDRAWN' || item.visibilityStatus === 'HIDDEN' ? null : '/pet-lost/' + item.id
+      }))
+    } else if (section.value === 'found') {
+      const result = await listMyFound(page.value)
+      if (!result.data) throw new Error(result.message)
+      data = result.data
+      rows = data.records.map(item => ({
+        id: item.id, title: item.petName || '未命名宠物', description: item.moderationReason || item.foundLocation,
+        status: item.visibilityStatus === 'HIDDEN' ? 'HIDDEN' : item.status, date: item.createdAt,
+        path: item.status === 'OPEN' && item.visibilityStatus !== 'HIDDEN' ? '/pet-found/' + item.id : null
+      }))
+    } else if (section.value === 'posts') {
+      const result = await listMyCommunityPosts(page.value)
+      if (!result.data) throw new Error(result.message)
+      data = result.data
+      rows = data.records.map(item => ({
+        id: item.id, title: item.title, description: item.moderationReason || item.content,
+        status: item.visibilityStatus === 'HIDDEN' ? 'HIDDEN' : item.auditStatus,
+        date: item.createdAt, path: '/community/posts/' + item.id
+      }))
+    }
+    if (version !== requestVersion) return
+    entries.value = rows
+    totalPages.value = data?.totalPages || 0
+    total.value = data?.total || 0
+  } catch (e) {
+    if (version === requestVersion) recordError.value = e instanceof Error ? e.message : '记录加载失败'
+  } finally {
+    if (version === requestVersion) recordsLoading.value = false
+  }
 }
-
-// 页面加载时自动获取用户资料
-onMounted(() => {
-  loadCurrentUser()
-})
+async function chooseSection(value: Section) {
+  section.value = value
+  page.value = 1
+  showForm.value = false
+  loadRecords()
+  await nextTick()
+  if (window.matchMedia('(max-width: 720px)').matches) {
+    contentPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+function editPet(pet?: PetProfile) {
+  editingId.value = pet?.id ?? null
+  Object.assign(petForm, {
+    name: pet?.name || '', species: pet?.species || '', breed: pet?.breed || '',
+    birthDate: pet?.birthDate || '', description: pet?.description || ''
+  })
+  formError.value = ''
+  showForm.value = true
+}
+async function submitPet() {
+  busy.value = true
+  formError.value = ''
+  try {
+    const result = await savePet({
+      name: petForm.name.trim(), species: petForm.species.trim(), breed: petForm.breed.trim() || null,
+      birthDate: petForm.birthDate || null, description: petForm.description.trim() || null
+    }, editingId.value)
+    if (result.code !== 200) throw new Error(result.message)
+    showForm.value = false
+    page.value = 1
+    await Promise.all([loadSummary(), loadRecords()])
+  } catch (e) {
+    formError.value = e instanceof Error ? e.message : '保存失败'
+  } finally {
+    busy.value = false
+  }
+}
+async function removePet(pet: PetProfile) {
+  if (!confirm('确定删除「' + pet.name + '」的宠物档案吗？')) return
+  busy.value = true
+  try {
+    await deletePet(pet.id)
+    page.value = 1
+    await Promise.all([loadSummary(), loadRecords()])
+  } catch (e) {
+    recordError.value = e instanceof Error ? e.message : '删除失败'
+  } finally {
+    busy.value = false
+  }
+}
+function logout() {
+  localStorage.removeItem('token')
+  router.replace('/login')
+}
+function move(delta: number) {
+  page.value += delta
+  loadRecords()
+}
+onMounted(load)
 </script>
 
 <template>
-  <div class="user-page">
-
-    <header class="topbar">
-      <div class="brand">PawFind</div>
-      <span class="topbar-label">PET COMMUNITY</span>
-    </header>
-
-    <main class="main-content">
-
-      <section class="welcome">
-        <p class="eyebrow">PERSONAL CENTER</p>
-        <h1>个人中心</h1>
-        <p>欢迎回来，查看你的 PawFind 账户信息。</p>
+  <AppNav />
+  <main class="container personal-center">
+    <div v-if="loading" class="state-panel">正在打开你的个人空间……</div>
+    <div v-else-if="error" class="state-panel state-error">{{ error }} <button class="button button-light" @click="load">重新加载</button></div>
+    <template v-else-if="user">
+      <section class="profile-banner">
+        <div class="profile-identity">
+          <div class="profile-avatar">{{ user.username.charAt(0).toUpperCase() }}</div>
+          <div><p class="eyebrow">MY PAWFIND</p><h1>{{ user.username }}</h1><p>ID {{ user.id }} · {{ user.role === 'ADMIN' ? '社区管理员' : '宠友邻成员' }}</p></div>
+        </div>
+        <div class="profile-stats">
+          <button @click="chooseSection('pets')"><strong>{{ summary.pets }}</strong><span>我的宠物</span></button>
+          <button @click="chooseSection('lost')"><strong>{{ summary.lost + summary.found }}</strong><span>寻宠与发现</span></button>
+          <button @click="chooseSection('posts')"><strong>{{ summary.posts }}</strong><span>发布动态</span></button>
+        </div>
       </section>
-
-      <section class="profile-card">
-
-        <div v-if="loading" class="state-message">
-          正在加载用户资料...
-        </div>
-
-        <div v-else-if="errorMessage" class="state-message error">
-          {{ errorMessage }}
-          <button @click="loadCurrentUser">
-            重新加载
-          </button>
-        </div>
-
-        <div v-else-if="user">
-
-          <div class="profile-heading">
-            <div class="avatar">
-              {{ user.username.charAt(0).toUpperCase() }}
-            </div>
-
-            <div>
-              <h2>{{ user.username }}</h2>
-              <span class="status">已登录</span>
-            </div>
+      <div class="personal-layout">
+        <aside class="personal-sidebar">
+          <nav class="profile-menu" aria-label="个人中心栏目">
+            <button v-for="item in menu" :key="item.key" :class="{ active: section === item.key }" :aria-pressed="section === item.key" @click="chooseSection(item.key)">
+              <span class="menu-icon" aria-hidden="true">{{ item.icon }}</span>
+              <span class="grow"><b>{{ item.label }}</b><small>{{ item.hint }}</small></span><span aria-hidden="true">›</span>
+            </button>
+          </nav>
+          <button class="profile-logout" @click="logout"><span aria-hidden="true">⏻</span>退出登录</button>
+        </aside>
+        <section ref="contentPanel" class="panel personal-content">
+          <div class="page-heading"><div><p class="eyebrow">YOUR LITTLE WORLD</p><h2>{{ heading }}</h2></div>
+            <button v-if="section === 'pets' && !showForm" class="button button-small" @click="editPet()">＋ 添加宠物</button>
+            <RouterLink v-if="section === 'lost'" class="button button-small" to="/pet-lost/create">发布走失</RouterLink>
+            <RouterLink v-if="section === 'found'" class="button button-small" to="/pet-found/create">上报发现</RouterLink>
+            <RouterLink v-if="section === 'posts'" class="button button-small" to="/community/create">发布动态</RouterLink>
           </div>
-
-          <div class="divider"></div>
-
-          <div class="info-row">
-            <span>用户 ID</span>
-            <strong>{{ user.id }}</strong>
+          <form v-if="showForm && section === 'pets'" class="form-stack pet-editor" @submit.prevent="submitPet">
+            <h3>{{ editingId === null ? '添加宠物档案' : '编辑宠物档案' }}</h3>
+            <label>宠物名字 *<input v-model="petForm.name" maxlength="50" required placeholder="它叫什么名字？"></label>
+            <div class="form-columns"><label>种类 *<input v-model="petForm.species" maxlength="30" required placeholder="例如 猫、狗"></label><label>品种<input v-model="petForm.breed" maxlength="50" placeholder="选填"></label></div>
+            <label>生日<input v-model="petForm.birthDate" type="date"></label>
+            <label>关于它<textarea v-model="petForm.description" rows="3" maxlength="2000" placeholder="毛色、性格，还有它的小习惯"></textarea></label>
+            <p v-if="formError" class="form-error">{{ formError }}</p>
+            <div class="button-row"><button class="button" :disabled="busy">{{ busy ? '保存中……' : '保存档案' }}</button><button type="button" class="button button-light" :disabled="busy" @click="showForm = false">取消</button></div>
+          </form>
+          <div v-else-if="section === 'account'" class="account-details">
+            <div><span>用户名</span><b>{{ user.username }}</b></div><div><span>用户 ID</span><b>{{ user.id }}</b></div><div><span>角色</span><b>{{ user.role === 'ADMIN' ? '管理员' : '普通成员' }}</b></div>
           </div>
-
-          <div class="info-row">
-            <span>用户名</span>
-            <strong>{{ user.username }}</strong>
-          </div>
-
-          <div class="info-row">
-            <span>用户角色</span>
-            <strong>{{ user.role }}</strong>
-          </div>
-
-          <button class="logout-button" @click="handleLogout">
-            退出登录
-          </button>
-
-        </div>
-
-      </section>
-
-      <footer>
-        PAWFIND · FINDING EVERY PAW A HOME
-      </footer>
-
-    </main>
-  </div>
+          <template v-else>
+            <p v-if="recordError" class="form-error">{{ recordError }} <button class="text-button" @click="loadRecords">重试</button></p>
+            <p v-if="recordsLoading" class="muted">正在加载记录……</p>
+            <template v-else-if="section === 'pets'">
+              <div v-if="!pets.length" class="empty-personal"><span>🐾</span><h3>给它留一个专属位置</h3><p class="muted">添加名字、生日和特征，建立你的第一份宠物档案。</p><button class="button button-light" @click="editPet()">添加我的宠物</button></div>
+              <article v-for="pet in pets" :key="pet.id" class="my-pet-card">
+                <div class="pet-avatar" aria-hidden="true">🐾</div><div class="grow"><h3>{{ pet.name }}</h3><p>{{ pet.species }}<span v-if="pet.breed"> · {{ pet.breed }}</span></p><small v-if="pet.birthDate" class="muted">生日 {{ pet.birthDate }}</small><p v-if="pet.description" class="muted">{{ pet.description }}</p>
+                  <div class="button-row"><button class="text-button" :disabled="busy" @click="editPet(pet)">编辑档案</button><button class="text-button danger-text" :disabled="busy" @click="removePet(pet)">删除</button></div>
+                </div>
+              </article>
+            </template>
+            <template v-else>
+              <div v-if="!entries.length" class="empty-personal"><span>🌿</span><h3>这里还没有记录</h3><p class="muted">你的发布与处理进度都会在这里保留。</p></div>
+              <article v-for="entry in entries" :key="entry.id" class="personal-entry">
+                <div class="card-title-row"><h3>{{ entry.title }}</h3><StatusBadge :status="entry.status" /></div>
+                <p class="clamp">{{ entry.description }}</p><small class="muted">{{ entry.date.replace('T', ' ') }}</small>
+                <RouterLink v-if="entry.path" class="text-link" :to="entry.path">查看与管理 →</RouterLink>
+              </article>
+            </template>
+            <div v-if="totalPages > 1" class="pagination"><button class="button button-light button-small" :disabled="page <= 1 || recordsLoading" @click="move(-1)">上一页</button><span>{{ page }} / {{ totalPages }} · {{ total }} 条</span><button class="button button-light button-small" :disabled="page >= totalPages || recordsLoading" @click="move(1)">下一页</button></div>
+          </template>
+        </section>
+      </div>
+    </template>
+  </main>
 </template>
-
-<style scoped>
-.user-page {
-  min-height: 100vh;
-  background: #f5f7f2;
-  color: #29352d;
-}
-
-.topbar {
-  height: 68px;
-  padding: 0 8%;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: white;
-  border-bottom: 1px solid #e6ebe4;
-}
-
-.brand {
-  color: #244b38;
-  font-size: 23px;
-  font-weight: 700;
-}
-
-.topbar-label {
-  color: #849487;
-  font-size: 9px;
-  letter-spacing: 1.5px;
-}
-
-.main-content {
-  width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 65px 24px;
-}
-
-.welcome {
-  margin-bottom: 32px;
-}
-
-.eyebrow {
-  margin-bottom: 10px;
-  color: #527b60;
-  font-size: 11px;
-  letter-spacing: 2px;
-}
-
-.welcome h1 {
-  margin: 0 0 12px;
-  font-size: 30px;
-  font-weight: 650;
-}
-
-.welcome > p:last-child {
-  color: #849087;
-}
-
-.profile-card {
-  padding: 36px;
-  background: white;
-  border: 1px solid #e6ebe4;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(36, 75, 56, 0.04);
-}
-
-.profile-heading {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.avatar {
-  width: 58px;
-  height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #dce9de;
-  color: #244b38;
-  font-size: 23px;
-  font-weight: 650;
-}
-
-.profile-heading h2 {
-  margin: 0 0 7px;
-  font-size: 20px;
-}
-
-.status {
-  color: #527b60;
-  font-size: 12px;
-}
-
-.divider {
-  height: 1px;
-  margin: 28px 0;
-  background: #e6ebe4;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 18px 0;
-  border-bottom: 1px solid #edf0eb;
-}
-
-.info-row span {
-  color: #849087;
-}
-
-.info-row strong {
-  color: #34483a;
-  font-weight: 600;
-}
-
-.logout-button {
-  width: 100%;
-  height: 46px;
-  margin-top: 30px;
-  border: 1px solid #244b38;
-  border-radius: 7px;
-  background: white;
-  color: #244b38;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.logout-button:hover {
-  background: #244b38;
-  color: white;
-}
-
-.state-message {
-  padding: 30px 0;
-  color: #849087;
-  text-align: center;
-}
-
-.state-message button {
-  display: block;
-  margin: 15px auto 0;
-  color: #244b38;
-}
-
-.error {
-  color: #c34b43;
-}
-
-footer {
-  margin-top: 60px;
-  color: #a1aaa2;
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  text-align: center;
-}
-
-@media (max-width: 480px) {
-  .main-content {
-    padding: 40px 18px;
-  }
-
-  .profile-card {
-    padding: 24px 18px;
-  }
-}
-</style>

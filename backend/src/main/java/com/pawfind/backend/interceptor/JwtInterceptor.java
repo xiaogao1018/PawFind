@@ -1,90 +1,77 @@
-
 package com.pawfind.backend.interceptor;
 
-import tools.jackson.databind.json.JsonMapper;
-import com.pawfind.backend.common.result.Result;
+import com.pawfind.backend.common.exception.ForbiddenException;
+import com.pawfind.backend.common.exception.InvalidCredentialsException;
+import com.pawfind.backend.entity.SysUser;
+import com.pawfind.backend.mapper.SysUserMapper;
 import com.pawfind.backend.util.JwtUtil;
-
 import io.jsonwebtoken.JwtException;
-
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
+import org.springframework.http.server.PathContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.util.ServletRequestPathUtils;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
 
-import java.io.IOException;
+import java.util.List;
 
 @Component
 public class JwtInterceptor implements HandlerInterceptor {
+    private static final PathPattern ADMIN_PATH = PathPatternParser.defaultInstance.parse("/api/admin/**");
+    private static final List<PathPattern> PUBLIC_READ_PATHS = List.of(
+            "/api/pet-found/{id:[0-9]+}/comments",
+            "/api/pet-lost/{id:[0-9]+}/comments",
+            "/api/pet-found", "/api/pet-found/{id:[0-9]+}",
+            "/api/pet-found/{id:[0-9]+}/images", "/api/pet-found/{id:[0-9]+}/images/{attachmentId:[0-9]+}",
+            "/api/pet-lost", "/api/pet-lost/{id:[0-9]+}", "/api/pet-lost/{id:[0-9]+}/clues",
+            "/api/pet-lost/{id:[0-9]+}/images", "/api/pet-lost/{id:[0-9]+}/images/{attachmentId:[0-9]+}"
+    ).stream().map(PathPatternParser.defaultInstance::parse).toList();
 
     private final JwtUtil jwtUtil;
-    private final JsonMapper objectMapper;
+    private final SysUserMapper users;
 
-    public JwtInterceptor(
-            JwtUtil jwtUtil,
-            JsonMapper objectMapper) {
+    public JwtInterceptor(JwtUtil jwtUtil, SysUserMapper users) {
         this.jwtUtil = jwtUtil;
-        this.objectMapper = objectMapper;
+        this.users = users;
     }
 
     @Override
-    public boolean preHandle(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            Object handler) throws Exception {
-
-             
-        // 放行浏览器的 CORS 预检请求
-        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        String method = request.getMethod();
+        if ("OPTIONS".equals(method)) {
             return true;
         }
-   
 
-        // 1. 获取请求头中的 Token
-        String authHeader = request.getHeader("Authorization");
-
-        // 2. 检查 Token 是否存在
-        if (authHeader == null
-                || !authHeader.startsWith("Bearer ")
-                || authHeader.substring(7).isBlank()) {
-
-            writeUnauthorized(response, "缺少或格式错误的 Token");
-            return false;
+        PathContainer path = ServletRequestPathUtils.getParsedRequestPath(request).pathWithinApplication();
+        boolean publicRead = ("GET".equals(method) || "HEAD".equals(method))
+                && PUBLIC_READ_PATHS.stream().anyMatch(pattern -> pattern.matches(path));
+        String authorization = request.getHeader("Authorization");
+        if (publicRead && authorization == null) {
+            return true;
+        }
+        if (authorization == null || !authorization.startsWith("Bearer ") || authorization.substring(7).isBlank()) {
+            throw new InvalidCredentialsException("缺少或格式错误的 Token");
         }
 
-        // 3. 去掉 Bearer 前缀
-        String token = authHeader.substring(7).trim();
-
+        Long userId;
         try {
-            // 4. 验证 Token，获取用户 ID
-            Long userId = jwtUtil.getUserIdFromToken(token);
-
-            // 5. 将当前用户 ID 保存到请求中
-            request.setAttribute("currentUserId", userId);
-
-            // 6. 验证成功，允许请求继续
-            return true;
-
+            userId = jwtUtil.getUserIdFromToken(authorization.substring(7).trim());
         } catch (JwtException | IllegalArgumentException e) {
-
-            writeUnauthorized(response, "Token 无效或已过期");
-            return false;
+            throw new InvalidCredentialsException("Token 无效或已过期");
         }
-    }
 
-    // 统一返回 401 JSON
-    private void writeUnauthorized(
-            HttpServletResponse response,
-            String message) throws IOException {
+        SysUser user = users.selectById(userId);
+        if (user == null || !"ACTIVE".equals(user.getStatus())) {
+            throw new InvalidCredentialsException("当前账号不可用");
+        }
+        if (ADMIN_PATH.matches(path) && !"ADMIN".equals(user.getRole())) {
+            throw new ForbiddenException("仅管理员可以访问");
+        }
 
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setCharacterEncoding("UTF-8");
-        response.setContentType("application/json;charset=UTF-8");
-
-        objectMapper.writeValue(
-                response.getWriter(),
-                Result.error(401, message)
-        );
+        request.setAttribute("currentUserId", userId);
+        request.setAttribute("currentUserRole", user.getRole());
+        return true;
     }
 }

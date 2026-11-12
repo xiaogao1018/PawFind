@@ -4,6 +4,7 @@ package com.pawfind.backend.controller;
 import com.pawfind.backend.common.exception.InvalidCredentialsException;
 import com.pawfind.backend.common.result.Result;
 import com.pawfind.backend.service.FileAttachmentService;
+import com.pawfind.backend.service.AttachmentTarget;
 import com.pawfind.backend.vo.FileAttachmentVO;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -57,10 +58,12 @@ public class FileAttachmentController {
     // 查询一条走失记录的所有图片
     @GetMapping
     public Result<List<FileAttachmentVO>> listImages(
-            @PathVariable Long petLostId) {
+            @PathVariable Long petLostId,
+            @RequestAttribute(required = false) Long currentUserId,
+            @RequestAttribute(required = false) String currentUserRole) {
 
         return Result.success(
-                attachmentService.listImages(petLostId)
+                attachmentService.listImages(AttachmentTarget.LOST, petLostId, currentUserId, currentUserRole)
         );
     }
 
@@ -68,16 +71,16 @@ public class FileAttachmentController {
     @GetMapping("/{attachmentId}")
     public ResponseEntity<byte[]> getImage(
             @PathVariable Long petLostId,
-            @PathVariable Long attachmentId) {
+            @PathVariable Long attachmentId,
+            @RequestAttribute(required = false) Long currentUserId,
+            @RequestAttribute(required = false) String currentUserRole) {
 
         byte[] image = attachmentService.readImage(
-                petLostId,
-                attachmentId
+                AttachmentTarget.LOST, petLostId, attachmentId, currentUserId, currentUserRole
         );
 
         String contentType = attachmentService.getImageContentType(
-                petLostId,
-                attachmentId
+                AttachmentTarget.LOST, petLostId, attachmentId, currentUserId, currentUserRole
         );
 
         return ResponseEntity.ok()

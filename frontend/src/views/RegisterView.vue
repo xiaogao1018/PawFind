@@ -1,6 +1,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import PageBack from '../components/PageBack.vue'
 import { RouterLink } from 'vue-router'
 import { register } from '../api/auth'
 
@@ -59,6 +60,7 @@ async function handleRegister() {
 <template>
   <div class="register-page">
     <div class="register-card">
+      <PageBack compact />
 
       <div class="brand">
         <span class="brand-name">PawFind</span>

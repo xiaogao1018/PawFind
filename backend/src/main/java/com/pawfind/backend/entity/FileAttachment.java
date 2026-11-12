@@ -18,6 +18,8 @@ public class FileAttachment {
     private Long id;
 
     private Long petLostId;
+    private Long petFoundId;
+    private Long communityPostId;
 
     private String originalFilename;
     private String storageKey;

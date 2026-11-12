@@ -5,6 +5,14 @@ import com.pawfind.backend.common.exception.ForbiddenException;
 import com.pawfind.backend.common.exception.ResourceNotFoundException;
 import com.pawfind.backend.entity.FileAttachment;
 import com.pawfind.backend.entity.PetLost;
+import com.pawfind.backend.entity.PetFound;
+import com.pawfind.backend.entity.CommunityPost;
+import com.pawfind.backend.mapper.PetFoundMapper;
+import com.pawfind.backend.mapper.CommunityPostMapper;
+import com.pawfind.backend.service.CommunityService;
+import com.pawfind.backend.service.AttachmentTarget;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.pawfind.backend.mapper.FileAttachmentMapper;
 import com.pawfind.backend.service.FileAttachmentService;
 import com.pawfind.backend.vo.FileAttachmentVO;
@@ -38,58 +46,43 @@ public class FileAttachmentServiceImpl
 
     private final FileAttachmentMapper attachmentMapper;
     private final Path uploadRoot;
+    private final PetFoundMapper foundPets;
+    private final CommunityPostMapper posts;
+    private final CommunityService community;
 
     public FileAttachmentServiceImpl(
             FileAttachmentMapper attachmentMapper,
+            PetFoundMapper foundPets,
+            CommunityPostMapper posts,
+            CommunityService community,
             @Value("${pawfind.upload-dir:uploads}") String uploadDir) {
 
         this.attachmentMapper = attachmentMapper;
+        this.foundPets = foundPets;
+        this.posts = posts;
+        this.community = community;
         this.uploadRoot = Path.of(uploadDir)
                 .toAbsolutePath()
                 .normalize();
+    }
+
+    @Override
+    @Transactional
+    public FileAttachmentVO uploadImage(Long id, Long userId, MultipartFile file) {
+        return uploadImage(AttachmentTarget.LOST, id, userId, file);
     }
 
     // 上传图片
     @Override
     @Transactional
     public FileAttachmentVO uploadImage(
-            Long petLostId,
-            Long currentUserId,
-            MultipartFile file) {
-
-        if (petLostId == null || petLostId <= 0) {
-            throw new IllegalArgumentException("走失记录ID不合法");
-        }
-
-        if (currentUserId == null || currentUserId <= 0) {
-            throw new IllegalArgumentException("请先登录");
-        }
-
-        // 锁定所属走失记录
-        PetLost petLost = attachmentMapper.lockPetLost(petLostId);
-
-        if (petLost == null) {
-            throw new ResourceNotFoundException("走失信息不存在");
-        }
-
-        // 只有发布者可以上传
-        if (!Objects.equals(petLost.getUserId(), currentUserId)) {
-            throw new ForbiddenException("只能上传自己发布的信息的图片");
-        }
-
-        // 只允许寻找中的记录上传图片
-        if (!"LOOKING".equals(petLost.getStatus())) {
-            throw new IllegalArgumentException(
-                    "只有寻找中的走失信息可以上传图片"
-            );
-        }
-
-        // 最多5张
-        long count = attachmentMapper.countByPetLostId(petLostId);
+            AttachmentTarget resource, Long recordId, Long currentUserId, MultipartFile file) {
+        checkUploadOwner(resource, recordId, currentUserId);
+        long count = attachmentMapper.selectCount(imageQuery(resource, recordId));
 
         if (count >= MAX_IMAGES) {
             throw new IllegalArgumentException(
-                    "每条走失信息最多上传5张图片"
+                    "每条记录最多上传5张图片"
             );
         }
 
@@ -216,7 +209,11 @@ public class FileAttachmentServiceImpl
         // 保存图片和走失记录的关联
         FileAttachment attachment = new FileAttachment();
 
-        attachment.setPetLostId(petLostId);
+        switch (resource) {
+            case LOST -> attachment.setPetLostId(recordId);
+            case FOUND -> attachment.setPetFoundId(recordId);
+            case POST -> attachment.setCommunityPostId(recordId);
+        }
         attachment.setOriginalFilename(originalName);
         attachment.setStorageKey(storageKey);
         attachment.setContentType(contentType);
@@ -228,27 +225,19 @@ public class FileAttachmentServiceImpl
         return toVO(attachment);
     }
 
-    // 查询图片列表
     @Override
-    public List<FileAttachmentVO> listImages(Long petLostId) {
-
-        checkVisiblePet(petLostId);
-
-        return attachmentMapper
-                .selectByPetLostId(petLostId)
-                .stream()
-                .map(this::toVO)
-                .toList();
+    public List<FileAttachmentVO> listImages(
+            AttachmentTarget resource, Long recordId, Long userId, String role) {
+        checkVisible(resource, recordId, userId, role);
+        return attachmentMapper.selectList(imageQuery(resource, recordId)
+                        .orderByAsc(FileAttachment::getId))
+                .stream().map(this::toVO).toList();
     }
 
-    // 读取图片内容
     @Override
-    public byte[] readImage(
-            Long petLostId,
-            Long attachmentId) {
-
-        FileAttachment attachment =
-                getVisibleAttachment(petLostId, attachmentId);
+    public byte[] readImage(AttachmentTarget resource, Long recordId, Long attachmentId,
+                            Long userId, String role) {
+        FileAttachment attachment = getVisibleAttachment(resource, recordId, attachmentId, userId, role);
 
         Path target = uploadRoot
                 .resolve(attachment.getStorageKey())
@@ -270,55 +259,94 @@ public class FileAttachmentServiceImpl
         }
     }
 
-    // 读取图片类型
     @Override
-    public String getImageContentType(
-            Long petLostId,
-            Long attachmentId) {
-
-        return getVisibleAttachment(
-                petLostId, attachmentId
-        ).getContentType();
+    public String getImageContentType(AttachmentTarget resource, Long recordId, Long attachmentId,
+                                      Long userId, String role) {
+        return getVisibleAttachment(resource, recordId, attachmentId, userId, role).getContentType();
     }
 
-    // 检查记录存在且未撤回
-    private void checkVisiblePet(Long petLostId) {
+    private LambdaQueryWrapper<FileAttachment> imageQuery(AttachmentTarget resource, Long recordId) {
+        return switch (resource) {
+            case LOST -> Wrappers.<FileAttachment>lambdaQuery().eq(FileAttachment::getPetLostId, recordId);
+            case FOUND -> Wrappers.<FileAttachment>lambdaQuery().eq(FileAttachment::getPetFoundId, recordId);
+            case POST -> Wrappers.<FileAttachment>lambdaQuery().eq(FileAttachment::getCommunityPostId, recordId);
+        };
+    }
 
-        if (petLostId == null || petLostId <= 0) {
-            throw new IllegalArgumentException("走失记录ID不合法");
-        }
-
-        // 这里只查询所属记录是否存在并且可展示
-        PetLost petLost = attachmentMapper.lockFreeGetPet(petLostId);
-
-        if (petLost == null
-                || "WITHDRAWN".equals(petLost.getStatus())) {
-            throw new ResourceNotFoundException(
-                    "走失信息不存在或已撤回"
-            );
+    private void checkVisible(AttachmentTarget resource, Long recordId, Long userId, String role) {
+        switch (resource) {
+            case LOST -> {
+                PetLost lost = attachmentMapper.lockFreeGetPet(recordId);
+                if (lost == null || (!"ADMIN".equals(role)
+                        && (!List.of("LOOKING", "FOUND").contains(lost.getStatus())
+                        || !"VISIBLE".equals(lost.getVisibilityStatus())))) {
+                    throw new ResourceNotFoundException("走失信息不存在或已撤回");
+                }
+            }
+            case FOUND -> {
+                PetFound found = foundPets.selectById(recordId);
+                if (found == null || (!"ADMIN".equals(role)
+                        && (!"OPEN".equals(found.getStatus())
+                        || !"VISIBLE".equals(found.getVisibilityStatus())))) {
+                    throw new ResourceNotFoundException("发现记录不存在或已撤回");
+                }
+            }
+            case POST -> community.get(recordId, userId, role);
         }
     }
 
-    // 检查图片确实属于指定走失记录
-    private FileAttachment getVisibleAttachment(
-            Long petLostId,
-            Long attachmentId) {
-
-        checkVisiblePet(petLostId);
-
-        if (attachmentId == null || attachmentId <= 0) {
-            throw new IllegalArgumentException("图片ID不合法");
+    private void checkUploadOwner(AttachmentTarget resource, Long recordId, Long userId) {
+        Long ownerId;
+        switch (resource) {
+            case LOST -> {
+                PetLost lost = attachmentMapper.lockPetLost(recordId);
+                if (lost == null) {
+                    throw new ResourceNotFoundException("走失记录不存在");
+                }
+                ownerId = lost.getUserId();
+                if (!"LOOKING".equals(lost.getStatus()) || !"VISIBLE".equals(lost.getVisibilityStatus())) {
+                    throw new IllegalArgumentException("只有寻找中的记录可以上传图片");
+                }
+            }
+            case FOUND -> {
+                PetFound found = foundPets.selectOne(Wrappers.<PetFound>lambdaQuery()
+                        .eq(PetFound::getId, recordId).last("FOR UPDATE"));
+                if (found == null || !"OPEN".equals(found.getStatus())
+                        || !"VISIBLE".equals(found.getVisibilityStatus())) {
+                    throw new ResourceNotFoundException("发现记录不存在或已撤回");
+                }
+                ownerId = found.getUserId();
+            }
+            case POST -> {
+                CommunityPost post = posts.selectOne(Wrappers.<CommunityPost>lambdaQuery()
+                        .eq(CommunityPost::getId, recordId).last("FOR UPDATE"));
+                if (post == null) {
+                    throw new ResourceNotFoundException("帖子不存在");
+                }
+                ownerId = post.getUserId();
+                if (!Objects.equals(ownerId, userId)) {
+                    throw new ForbiddenException("只能上传自己发布的信息的图片");
+                }
+                posts.update(Wrappers.<CommunityPost>lambdaUpdate().eq(CommunityPost::getId, recordId)
+                        .set(CommunityPost::getAuditStatus, "PENDING")
+                        .set(CommunityPost::getVisibilityStatus, "VISIBLE")
+                        .set(CommunityPost::getModerationReason, null));
+            }
+            default -> throw new IllegalArgumentException("图片关联类型不合法");
         }
+        if (!Objects.equals(ownerId, userId)) {
+            throw new ForbiddenException("只能上传自己发布的信息的图片");
+        }
+    }
 
-        FileAttachment attachment =
-                attachmentMapper.selectById(attachmentId);
-
-        if (attachment == null
-                || !Objects.equals(
-                        attachment.getPetLostId(), petLostId)) {
+    private FileAttachment getVisibleAttachment(AttachmentTarget resource, Long recordId, Long attachmentId,
+                                                Long userId, String role) {
+        checkVisible(resource, recordId, userId, role);
+        FileAttachment attachment = attachmentMapper.selectOne(
+                imageQuery(resource, recordId).eq(FileAttachment::getId, attachmentId));
+        if (attachment == null) {
             throw new ResourceNotFoundException("图片不存在");
         }
-
         return attachment;
     }
 
@@ -432,6 +460,8 @@ public class FileAttachmentServiceImpl
 
         vo.setId(attachment.getId());
         vo.setPetLostId(attachment.getPetLostId());
+        vo.setPetFoundId(attachment.getPetFoundId());
+        vo.setCommunityPostId(attachment.getCommunityPostId());
         vo.setOriginalFilename(
                 attachment.getOriginalFilename()
         );
@@ -439,12 +469,13 @@ public class FileAttachmentServiceImpl
         vo.setFileSize(attachment.getFileSize());
         vo.setCreatedAt(attachment.getCreatedAt());
 
-        vo.setUrl(
-                "/api/pet-lost/"
-                + attachment.getPetLostId()
-                + "/images/"
-                + attachment.getId()
-        );
+        if (attachment.getPetLostId() != null) {
+            vo.setUrl(AttachmentTarget.LOST.imageUrl(attachment.getPetLostId(), attachment.getId()));
+        } else if (attachment.getPetFoundId() != null) {
+            vo.setUrl(AttachmentTarget.FOUND.imageUrl(attachment.getPetFoundId(), attachment.getId()));
+        } else {
+            vo.setUrl(AttachmentTarget.POST.imageUrl(attachment.getCommunityPostId(), attachment.getId()));
+        }
 
         return vo;
     }

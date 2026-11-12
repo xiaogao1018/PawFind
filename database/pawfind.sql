@@ -16,6 +16,12 @@
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS user_notification;
+DROP TABLE IF EXISTS direct_message;
+DROP TABLE IF EXISTS record_comment;
+
+DROP TABLE IF EXISTS `file_attachment`;
+DROP TABLE IF EXISTS `pet_profile`;
 
 -- ----------------------------
 -- Table structure for admin_operation_log
@@ -91,13 +97,14 @@ DROP TABLE IF EXISTS `community_post`;
 CREATE TABLE `community_post` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '帖子ID',
   `author_id` bigint NOT NULL COMMENT '发布者ID',
-  `title` varchar(100) NOT NULL COMMENT '帖子标题',
+  `title` varchar(120) NOT NULL COMMENT '帖子标题',
   `content` text NOT NULL COMMENT '帖子正文',
   `category` varchar(20) NOT NULL COMMENT '帖子分类',
   `audit_status` varchar(20) NOT NULL DEFAULT 'PENDING' COMMENT '审核状态',
   `visibility_status` varchar(20) NOT NULL DEFAULT 'VISIBLE' COMMENT '显示状态',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `moderation_reason` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_post_public` (`audit_status`,`visibility_status`,`created_at`),
   KEY `idx_post_author` (`author_id`),
@@ -113,6 +120,7 @@ CREATE TABLE `pet_clue` (
   `lost_id` bigint NOT NULL COMMENT '关联的走失记录ID',
   `user_id` bigint NOT NULL COMMENT '线索提交者ID',
   `content` text NOT NULL COMMENT '线索内容',
+  `contact_info` varchar(100) DEFAULT NULL,
   `sighting_time` datetime DEFAULT NULL COMMENT '目击时间',
   `sighting_location` varchar(255) DEFAULT NULL COMMENT '目击地点',
   `status` varchar(20) NOT NULL DEFAULT 'PENDING' COMMENT '线索状态',
@@ -131,6 +139,7 @@ DROP TABLE IF EXISTS `pet_found`;
 CREATE TABLE `pet_found` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '发现记录ID',
   `user_id` bigint NOT NULL COMMENT '发布者用户ID',
+  `pet_name` varchar(50) DEFAULT NULL,
   `species` varchar(30) NOT NULL COMMENT '宠物种类',
   `description` text COMMENT '宠物特征描述',
   `found_time` datetime NOT NULL COMMENT '发现时间',
@@ -180,5 +189,93 @@ CREATE TABLE `sys_user` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户表';
+
+CREATE TABLE file_attachment (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    pet_lost_id BIGINT DEFAULT NULL,
+    pet_found_id BIGINT DEFAULT NULL,
+    community_post_id BIGINT DEFAULT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    storage_key VARCHAR(255) NOT NULL UNIQUE,
+    content_type VARCHAR(100) NOT NULL,
+    file_size BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_attachment_pet_created (pet_lost_id, created_at, id),
+    KEY idx_attachment_found (pet_found_id, id),
+    KEY idx_attachment_post (community_post_id, id),
+    CONSTRAINT fk_attachment_found FOREIGN KEY (pet_found_id) REFERENCES pet_found(id),
+    CONSTRAINT fk_attachment_post FOREIGN KEY (community_post_id) REFERENCES community_post(id),
+    CONSTRAINT chk_attachment_owner CHECK (
+        (pet_lost_id IS NOT NULL) + (pet_found_id IS NOT NULL) + (community_post_id IS NOT NULL) = 1
+    ),
+    CONSTRAINT fk_attachment_pet_lost FOREIGN KEY (pet_lost_id) REFERENCES pet_lost(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE pet_profile (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    species VARCHAR(30) NOT NULL,
+    breed VARCHAR(50) DEFAULT NULL,
+    birth_date DATE DEFAULT NULL,
+    description VARCHAR(2000) DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_profile_user (user_id, id),
+    CONSTRAINT fk_profile_user FOREIGN KEY (user_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+ALTER TABLE pet_lost
+    ADD COLUMN visibility_status VARCHAR(20) NOT NULL DEFAULT 'VISIBLE',
+    ADD COLUMN moderation_reason VARCHAR(255) DEFAULT NULL,
+    ADD KEY idx_lost_public (visibility_status, status, id);
+ALTER TABLE pet_found
+    ADD COLUMN visibility_status VARCHAR(20) NOT NULL DEFAULT 'VISIBLE',
+    ADD COLUMN moderation_reason VARCHAR(255) DEFAULT NULL,
+    ADD KEY idx_found_public (visibility_status, status, id);
+
+CREATE TABLE user_notification (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    recipient_id BIGINT NOT NULL,
+    actor_id BIGINT NOT NULL,
+    type VARCHAR(30) NOT NULL,
+    target_type VARCHAR(20) NOT NULL,
+    target_id BIGINT NOT NULL,
+    content VARCHAR(300) NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_notice_recipient (recipient_id, is_read, id),
+    CONSTRAINT fk_notice_recipient FOREIGN KEY (recipient_id) REFERENCES sys_user(id),
+    CONSTRAINT fk_notice_actor FOREIGN KEY (actor_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE direct_message (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    sender_id BIGINT NOT NULL,
+    recipient_id BIGINT NOT NULL,
+    content VARCHAR(2000) NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_dm_sender_recipient (sender_id, recipient_id, id),
+    KEY idx_dm_recipient_read (recipient_id, is_read, id),
+    CONSTRAINT fk_dm_sender FOREIGN KEY (sender_id) REFERENCES sys_user(id),
+    CONSTRAINT fk_dm_recipient FOREIGN KEY (recipient_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE record_comment (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    pet_lost_id BIGINT DEFAULT NULL,
+    pet_found_id BIGINT DEFAULT NULL,
+    user_id BIGINT NOT NULL,
+    content VARCHAR(2000) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_record_comment_lost (pet_lost_id, id),
+    KEY idx_record_comment_found (pet_found_id, id),
+    CONSTRAINT chk_record_comment_target CHECK (
+        (pet_lost_id IS NOT NULL) + (pet_found_id IS NOT NULL) = 1
+    ),
+    CONSTRAINT fk_record_comment_lost FOREIGN KEY (pet_lost_id) REFERENCES pet_lost(id),
+    CONSTRAINT fk_record_comment_found FOREIGN KEY (pet_found_id) REFERENCES pet_found(id),
+    CONSTRAINT fk_record_comment_user FOREIGN KEY (user_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -1,8 +1,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import PageBack from '../components/PageBack.vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { login } from '../api/auth'
+import { getCurrentUser } from '../api/user'
 
 const router = useRouter()
 
@@ -37,8 +39,8 @@ async function handleLogin() {
     // 保存 JWT
     localStorage.setItem('token', result.data.token)
 
-    // 登录成功，进入用户中心
-    await router.push('/user')
+    const current = await getCurrentUser()
+    await router.replace(current.data.data?.role === 'ADMIN' ? '/admin/lost' : '/')
 
   } catch (error) {
     errorMessage.value =
@@ -54,6 +56,7 @@ async function handleLogin() {
 <template>
   <div class="login-page">
     <div class="login-card">
+      <PageBack compact />
 
       <div class="brand">
         <span class="brand-name">PawFind-宠友邻</span>

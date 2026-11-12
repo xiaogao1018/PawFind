@@ -20,11 +20,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtInterceptor)
-                .addPathPatterns(
-                        "/api/users/**",
-                        "/api/pet-lost",
-                        "/api/pet-lost/**"
-                );
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/auth/register", "/api/auth/login");
     }
 
     // 允许本地 Vue 前端访问后端 API

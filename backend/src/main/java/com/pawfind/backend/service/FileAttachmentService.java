@@ -1,32 +1,28 @@
-
 package com.pawfind.backend.service;
 
 import com.pawfind.backend.vo.FileAttachmentVO;
 import org.springframework.web.multipart.MultipartFile;
-
 import java.util.List;
 
 public interface FileAttachmentService {
+    default FileAttachmentVO uploadImage(Long id, Long userId, MultipartFile file) {
+        return uploadImage(AttachmentTarget.LOST, id, userId, file);
+    }
 
-    // 上传并关联图片
-    FileAttachmentVO uploadImage(
-            Long petLostId,
-            Long currentUserId,
-            MultipartFile file
-    );
+    default List<FileAttachmentVO> listImages(Long id) {
+        return listImages(AttachmentTarget.LOST, id, null, null);
+    }
 
-    // 查询走失记录的图片列表
-    List<FileAttachmentVO> listImages(Long petLostId);
+    default byte[] readImage(Long id, Long attachmentId) {
+        return readImage(AttachmentTarget.LOST, id, attachmentId, null, null);
+    }
 
-    // 读取指定图片
-    byte[] readImage(
-            Long petLostId,
-            Long attachmentId
-    );
+    default String getImageContentType(Long id, Long attachmentId) {
+        return getImageContentType(AttachmentTarget.LOST, id, attachmentId, null, null);
+    }
 
-    // 获取图片类型，用于响应头
-    String getImageContentType(
-            Long petLostId,
-            Long attachmentId
-    );
+    FileAttachmentVO uploadImage(AttachmentTarget target, Long id, Long userId, MultipartFile file);
+    List<FileAttachmentVO> listImages(AttachmentTarget target, Long id, Long userId, String role);
+    byte[] readImage(AttachmentTarget target, Long id, Long attachmentId, Long userId, String role);
+    String getImageContentType(AttachmentTarget target, Long id, Long attachmentId, Long userId, String role);
 }

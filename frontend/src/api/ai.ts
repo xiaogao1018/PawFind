@@ -1,14 +1,45 @@
 import request from './request'
 import type { ApiResult } from '../types/common'
 
-export interface AiMessage { role: 'user' | 'assistant'; content: string }
+export type AiAssistantType = 'GENERAL' | 'LOST_INFO' | 'NOTICE_DRAFT' | 'PET_QA'
+export interface AiMessage { id?: number; role: 'user' | 'assistant'; content: string; createdAt?: string }
+export interface AiSession { id: number; title: string; createdAt: string; updatedAt: string }
+export interface AiStatus { configured: boolean; provider: string | null; model: string | null; message: string }
 export async function getAiStatus() {
-  return (await request.get<ApiResult<{ configured: boolean; message: string }>>('/api/ai/status')).data
+  return (await request.get<ApiResult<AiStatus>>('/api/ai/status')).data
+}
+
+export async function getAiSessions() {
+  return (await request.get<ApiResult<AiSession[]>>('/api/ai/sessions')).data
+}
+
+export async function createAiSession(title?: string) {
+  return (await request.post<ApiResult<AiSession>>('/api/ai/sessions', { title })).data
+}
+
+export async function getAiMessages(sessionId: number): Promise<ApiResult<AiMessage[]>> {
+  const result = (await request.get<ApiResult<Array<{ id: number; role: 'USER' | 'ASSISTANT'; content: string; createdAt: string }>>>(`/api/ai/sessions/${sessionId}/messages`)).data
+  return {
+    code: result.code,
+    message: result.message,
+    data: result.data?.map(item => ({ ...item, role: item.role.toLowerCase() as 'user' | 'assistant' })) || null
+  }
+}
+
+export async function deleteAiSession(sessionId: number) {
+  return (await request.delete<ApiResult<null>>(`/api/ai/sessions/${sessionId}`)).data
+}
+
+export async function sendAiMessage(sessionId: number | null, content: string, assistantType: AiAssistantType) {
+  return (await request.post<ApiResult<{ sessionId: number; userMessage: AiMessage; assistantMessage: AiMessage }>>('/api/ai/chat', {
+    sessionId, content, assistantType
+  })).data
 }
 
 // Expected SSE events: delta {"content":"..."}, done {}, error {"message":"..."}.
 export async function streamAiReply(
-  messages: AiMessage[], onDelta: (text: string) => void, signal: AbortSignal
+  requestBody: { sessionId: number | null; content: string; assistantType: AiAssistantType },
+  onDelta: (text: string) => void, onSession: (sessionId: number) => void, signal: AbortSignal
 ) {
   const base = request.defaults.baseURL || window.location.origin
   const endpoint = new URL('/api/ai/chat/stream', new URL(base, window.location.origin))
@@ -18,7 +49,7 @@ export async function streamAiReply(
       'Content-Type': 'application/json', Accept: 'text/event-stream',
       Authorization: 'Bearer ' + (localStorage.getItem('token') || '')
     },
-    body: JSON.stringify({ messages })
+    body: JSON.stringify(requestBody)
   })
   if (!response.ok) {
     if (response.status === 401) localStorage.removeItem('token')
@@ -42,9 +73,10 @@ export async function streamAiReply(
     const type = event
     event = 'message'
     if (type === 'done' || payload === '[DONE]') { done = true; return }
-    let value: { content?: string; message?: string }
+    let value: { content?: string; message?: string; sessionId?: number }
     try { value = JSON.parse(payload) } catch { throw new Error('AI 回复数据无法解析') }
     if (type === 'error') throw new Error(value.message || 'AI 回复中断，请重试')
+    if (type === 'meta' && Number.isSafeInteger(value.sessionId)) onSession(value.sessionId as number)
     if (typeof value.content === 'string') onDelta(value.content)
   }
   function line(value: string) {

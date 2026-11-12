@@ -6,8 +6,10 @@ import com.pawfind.backend.common.exception.ResourceNotFoundException;
 import com.pawfind.backend.dto.CommunityPostDTO;
 import com.pawfind.backend.dto.PetFoundDTO;
 import com.pawfind.backend.entity.CommunityComment;
+import com.pawfind.backend.entity.AiChatMessage;
 import com.pawfind.backend.entity.SysUser;
 import com.pawfind.backend.mapper.CommunityCommentMapper;
+import com.pawfind.backend.mapper.AiChatMessageMapper;
 import com.pawfind.backend.mapper.SysUserMapper;
 import com.pawfind.backend.service.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,8 +33,10 @@ class ManagementAndMessageTests {
     @Autowired RecordCommentService comments;
     @Autowired NotificationService notices;
     @Autowired DirectMessageService direct;
+    @Autowired AiChatService aiChat;
     @Autowired SysUserMapper users;
     @Autowired CommunityCommentMapper communityComments;
+    @Autowired AiChatMessageMapper aiMessages;
 
     private Long owner;
     private Long visitor;
@@ -115,6 +119,23 @@ class ManagementAndMessageTests {
         assertEquals(1, notices.unread(owner).notifications());
         community.comment(post.getId(), visitor, "🐾".repeat(301));
         assertEquals("🐾".repeat(300), notices.list(owner, 1, 20).records().getFirst().content());
+    }
+
+    @Test
+    void aiChatHistoryIsPersistedAndIsolatedBySessionOwner() {
+        var session = aiChat.createSession(owner, "寻找团子的对话");
+        AiChatMessage message = new AiChatMessage();
+        message.setSessionId(session.id());
+        message.setRole("USER");
+        message.setContent("团子昨晚在公园走失");
+        message.setCreatedAt(LocalDateTime.now());
+        aiMessages.insert(message);
+
+        assertEquals(1, aiChat.listSessions(owner).size());
+        assertTrue(aiChat.listSessions(outsider).isEmpty());
+        assertEquals("团子昨晚在公园走失", aiChat.listMessages(owner, session.id()).getFirst().getContent());
+        assertThrows(ResourceNotFoundException.class, () -> aiChat.listMessages(outsider, session.id()));
+        assertThrows(ResourceNotFoundException.class, () -> aiChat.deleteSession(outsider, session.id()));
     }
 
     private Long user(String role) {

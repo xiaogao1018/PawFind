@@ -22,38 +22,64 @@
 
 读取或标记已读始终以当前登录用户和对方用户组成的会话为范围。标记已读使用已获取的最大消息 ID，保留此后到达消息的未读状态。
 
-## 流式 AI
+## DeepSeek AI
 
-当前 GET `/api/ai/status` 返回 `configured=false`。POST `/api/ai/chat/stream` 返回 HTTP 503 的 Result 错误，界面展示尚未开放的提示。
+项目通过 Spring AI 2.0.x 的 DeepSeek Starter 调用模型。服务端只从环境变量读取 API Key。未设置 `DEEPSEEK_API_KEY` 和 `SPRING_AI_MODEL_CHAT=deepseek` 时，GET `/api/ai/status` 返回 `configured=false`，流式接口返回 503 JSON，其他业务不受影响。
 
-接入模型时，替换 AiChatController 中的占位响应，并将 status 的 configured 改为实际服务状态。前端已使用 fetch 流式读取，支持停止和连接中断提示。
+### 会话与历史
 
-请求格式为
+- GET `/api/ai/status` 返回启用状态、供应商、模型名和提示。
+- GET `/api/ai/sessions` 返回当前用户最近更新的 50 个会话。
+- POST `/api/ai/sessions` 接收可选的 `{"title":"新对话"}`。
+- GET `/api/ai/sessions/{sessionId}/messages` 返回自己的会话消息。
+- DELETE `/api/ai/sessions/{sessionId}` 删除自己的会话及消息。
+
+所有会话查询都同时匹配 `sessionId` 和当前登录用户 ID。模型请求携带最近 20 条消息作为多轮上下文，避免历史无限增长导致 token 成本和延迟持续上升。
+
+### 非流式问答
+
+POST `/api/ai/chat` 接收以下请求，并返回已保存的用户消息和 AI 消息。
 
 ```json
-{"messages":[{"role":"user","content":"帮我整理寻宠信息"}]}
+{
+  "sessionId": 12,
+  "content": "帮我整理寻宠信息",
+  "assistantType": "LOST_INFO"
+}
 ```
 
-成功响应使用 `Content-Type: text/event-stream; charset=utf-8`。每个增量通过 delta 事件发送，data 是 JSON，包含本次新增文本。
+`sessionId` 可以省略，服务端会自动创建会话。`assistantType` 可取 `GENERAL`、`LOST_INFO`、`NOTICE_DRAFT` 或 `PET_QA`，省略时使用 `GENERAL`。
+
+### SSE 流式问答
+
+POST `/api/ai/chat/stream` 使用相同请求体。成功响应为 `Content-Type: text/event-stream; charset=utf-8`。第一个 `meta` 事件返回会话 ID，随后发送增量文本。
+
 
 ```text
-event: delta
-data: {"content":"请先告诉我"}
+event: meta
+data: {"event":"meta","sessionId":12}
 
 event: delta
-data: {"content":"宠物的种类。"}
+data: {"event":"delta","content":"请先告诉我"}
+
+event: delta
+data: {"event":"delta","content":"宠物的种类。"}
 
 event: done
-data: {}
+data: {"event":"done"}
 
 ```
 
-流开始后的错误使用 error 事件，随后结束响应。
+流建立后的错误使用 `error` 事件并结束响应。已经生成的部分内容会保存到历史记录。
 
 ```text
 event: error
-data: {"message":"服务暂时繁忙，请稍后重试"}
+data: {"event":"error","message":"DeepSeek 暂时无法回复，请稍后重试"}
 
 ```
 
-在流开始前发生的错误使用对应 HTTP 状态及 Result JSON。模型调用和凭据配置放在服务端，并保留现有的登录鉴权。前端适配位于 `frontend/src/api/ai.ts`，对话界面位于 `frontend/src/components/AiChatPanel.vue`。
+在流开始前发生的错误使用对应 HTTP 状态及 Result JSON。前端使用 `fetch` 和 `ReadableStream` 解析 SSE，支持 UTF-8 分块、停止生成、异常提示和切换历史会话。
+
+### 安全与提示词
+
+系统提示词要求模型不编造宠物特征、地点、联系方式或寻回结果；资料不足时先追问。养宠问答只提供一般知识，紧急症状会建议联系正规宠物医院。用户仍应核实模型输出，不能把 AI 回复当作医疗诊断或确定事实。

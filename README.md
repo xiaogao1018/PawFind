@@ -6,7 +6,7 @@ PawFind 是面向社区居民的宠物走失与寻回平台。现有页面支持
 
 需要 Java 25、MySQL 8.4、Node.js 和 npm。后端通过 Maven Wrapper 构建。
 
-1. 准备 MySQL 数据库和账号。新建空的 `pawfind` 数据库后，使用有建表权限的账号导入 `database/pawfind.sql`。已有数据库若仍使用旧版表结构，按顺序各执行一次 `database/migrations/001_page_api.sql` 、`database/migrations/002_profiles_and_images.sql` 和 `database/migrations/003_management_and_messages.sql`。已执行 002 的数据库仅执行 003。初始化脚本包含删表语句，请仅用于空库。
+1. 准备 MySQL 数据库和账号。新建空的 `pawfind` 数据库后，使用有建表权限的账号导入 `database/pawfind.sql`。已有数据库按编号顺序执行尚未执行的迁移；当前最新脚本是 `database/migrations/004_deepseek_ai_chat.sql`。初始化脚本包含删表语句，请仅用于空库。
 2. 让后端账号 `pawfind_app` 可以读写 `pawfind` 库。在后端终端设置数据库密码和 JWT 密钥，再启动服务。
 
    ```zsh
@@ -51,7 +51,22 @@ UPDATE sys_user SET role = 'ADMIN' WHERE username = 'your_admin_username';
 
 通知从 003 迁移后的新互动开始生成。消息中心接收走失或招领留言、寻宠线索、社区评论、审核和管理通知，支持按用户名或从详情页发起私信。消息页会定期同步新消息，只有对话双方可以读取私信。
 
-AI 对话界面已提供流式读取、停止回复和错误处理。当前服务端返回尚未开放的提示。后续接入约定见 `docs/api/messages-and-ai-api.md`。
+AI 寻宠助手使用 Spring AI 接入 DeepSeek，提供非流式和 SSE 流式接口。聊天记录按用户和会话保存在 MySQL 中，刷新后可恢复，支持日常咨询、寻宠资料整理、启事草稿和养宠问答四种模式。没有配置 API Key 时，其他业务仍可正常启动。
+
+## 启用 DeepSeek
+
+先在 DeepSeek 开放平台创建 API Key。Key 只放在启动后端的终端环境变量中，不要写入 `application.properties`、截图或提交到 Git。
+
+```zsh
+cd /Users/Admin/Documents/PawFind/backend
+read -rs "DEEPSEEK_API_KEY?请输入 DeepSeek API Key: "
+export DEEPSEEK_API_KEY
+export SPRING_AI_MODEL_CHAT=deepseek
+export DEEPSEEK_MODEL=deepseek-flash
+./mvnw spring-boot:run
+```
+
+同一个终端仍需保留前文的 `DB_PASSWORD` 和 `JWT_SECRET`。模型名称可通过 `DEEPSEEK_MODEL` 调整；默认使用 `deepseek-flash`。模型接口、会话接口和 SSE 事件约定见 `docs/api/messages-and-ai-api.md`。
 
 ## 接口行为
 
@@ -59,5 +74,3 @@ AI 对话界面已提供流式读取、停止回复和错误处理。当前服�
 - 目击线索和联系方式仅对走失记录发布者、对应线索提交者和管理员可见。只有走失记录发布者可以核实线索。
 - 社区需要登录。作者可在「我的帖子」查看审核状态及原因。新帖和修改后的帖子需重新审核，通过且可见的帖子才进入社区列表并开放评论。
 - 管理员可审核帖子、隐藏或恢复已通过的帖子，以及禁用或恢复账号。状态变更与操作日志在同一事务中保存。
-
-AI 寻宠对话以及需求文档中尚无对应页面的功能，暂未接入本次联调。

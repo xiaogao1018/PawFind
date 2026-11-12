@@ -83,6 +83,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON).body(Result.error(403, e.getMessage()));
     }
 
+    @ExceptionHandler(AiServiceException.class)
+    public ResponseEntity<Result<Void>> handleAiService(AiServiceException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Result.error(503, e.getMessage()));
+    }
+
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
     public ResponseEntity<Result<Void>> handleMaxUploadSize() {
         return ResponseEntity.status(413).contentType(MediaType.APPLICATION_JSON).body(Result.error(413, "上传文件过大，单张图片不能超过5MB"));

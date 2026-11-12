@@ -42,21 +42,6 @@ CREATE TABLE `admin_operation_log` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='管理员操作日志表';
 
 -- ----------------------------
--- Table structure for ai_chat_message
--- ----------------------------
-DROP TABLE IF EXISTS `ai_chat_message`;
-CREATE TABLE `ai_chat_message` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '消息ID',
-  `session_id` bigint NOT NULL COMMENT '所属会话ID',
-  `role` varchar(20) NOT NULL COMMENT '消息角色：USER或ASSISTANT',
-  `content` text NOT NULL COMMENT '消息内容',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  KEY `idx_ai_message_session_created` (`session_id`,`created_at`),
-  CONSTRAINT `fk_ai_message_session` FOREIGN KEY (`session_id`) REFERENCES `ai_chat_session` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI聊天消息表';
-
--- ----------------------------
 -- Table structure for ai_chat_session
 -- ----------------------------
 DROP TABLE IF EXISTS `ai_chat_session`;
@@ -70,6 +55,21 @@ CREATE TABLE `ai_chat_session` (
   KEY `idx_ai_session_user_updated` (`user_id`,`updated_at`),
   CONSTRAINT `fk_ai_session_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI聊天会话表';
+
+-- ----------------------------
+-- Table structure for ai_chat_message
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_chat_message`;
+CREATE TABLE `ai_chat_message` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '消息ID',
+  `session_id` bigint NOT NULL COMMENT '所属会话ID',
+  `role` varchar(20) NOT NULL COMMENT '消息角色：USER或ASSISTANT',
+  `content` text NOT NULL COMMENT '消息内容',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_message_session_created` (`session_id`,`created_at`,`id`),
+  CONSTRAINT `fk_ai_message_session` FOREIGN KEY (`session_id`) REFERENCES `ai_chat_session` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI聊天消息表';
 
 -- ----------------------------
 -- Table structure for community_comment
